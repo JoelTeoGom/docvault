@@ -81,16 +81,24 @@ func (w *Worker) processMessage(ctx context.Context, msg events.SQSMessage) erro
 		}
 
 		if r.S3.Object.Size > domain.MaxFileSize || file.Mime != domain.MimeTypePDF || file.Size != r.S3.Object.Size {
-			_ = w.repo.UpdateStatus(ctx, userID, fileID, domain.StatusRejected)
+			file.Status = domain.StatusRejected
+			err = w.repo.Transition(ctx, file, domain.StatusPending)
+			if errors.Is(err, domain.ErrInvalidStatus) {
+				return nil // a duplicate delivery already handled it
+			}
+			if err != nil {
+				return fmt.Errorf("mark rejected: %w", err)
+			}
 			if err := w.storage.DeleteFile(ctx, r.S3.Object.Key); err != nil {
 				slog.ErrorContext(ctx, "failed to delete oversized object", "key", r.S3.Object.Key)
 			}
 			return nil
 		}
 
-		err = w.repo.UpdateStatus(ctx, userID, fileID, domain.StatusUploaded)
+		file.Status = domain.StatusUploaded
+		err = w.repo.Transition(ctx, file, domain.StatusPending)
 		if errors.Is(err, domain.ErrInvalidStatus) {
-			return nil
+			return nil // a duplicate delivery already handled it
 		}
 		if err != nil {
 			return fmt.Errorf("mark ready: %w", err)

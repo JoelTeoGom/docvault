@@ -143,31 +143,43 @@ func (r *DynamoDbRepo) List(ctx context.Context, userID, cursor string, limit in
 	return files, EncodeCursor(startKey), nil
 }
 
-func (r *DynamoDbRepo) UpdateStatus(ctx context.Context, userID, fileID string, status domain.Status) error {
-	_, err := r.client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+// Transition stores file, already carrying its new status, but only if the
+// stored status is still `from`. Checking the status inside the write is what
+// makes the transition atomic: a read-then-write would let a concurrent worker
+// or request change the status in between and get silently overwritten.
+//
+// The whole item is rewritten rather than patched so the sweep index keys are
+// always recomputed from the new state, and can never lag behind the status.
+func (r *DynamoDbRepo) Transition(ctx context.Context, file *domain.File, from domain.Status) error {
+	if file == nil {
+		return errors.New("file is nil")
+	}
+	item, err := attributevalue.MarshalMap(FromDomainFile(file))
+	if err != nil {
+		return fmt.Errorf("dynamo marshal: %w", err)
+	}
+	_, err = r.client.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(r.tableName),
-		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: "USER#" + userID},
-			"SK": &types.AttributeValueMemberS{Value: "FILE#" + fileID},
-		},
-		UpdateExpression: aws.String("SET #status = :status"),
-		// UpdateItem is an upsert: without this guard a status change for an
-		// unknown ID would create the item rather than fail, which is not how
-		// an SQL UPDATE on a missing row behaves.
-		ConditionExpression: aws.String("attribute_exists(PK)"),
-		ExpressionAttributeNames: map[string]string{
-			"#status": "status",
-		},
+		Item:      item,
+		// A missing item has no status, so this also refuses to create one.
+		ConditionExpression:      aws.String("#status = :from"),
+		ExpressionAttributeNames: map[string]string{"#status": "status"},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":status": &types.AttributeValueMemberS{Value: string(status)},
+			":from": &types.AttributeValueMemberS{Value: string(from)},
 		},
+		// Returns the stored item on failure, which tells a missing file apart
+		// from one whose status moved on.
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailureAllOld,
 	})
 	if err != nil {
 		var conditionFailed *types.ConditionalCheckFailedException
 		if errors.As(err, &conditionFailed) {
-			return domain.ErrFileNotFound
+			if len(conditionFailed.Item) == 0 {
+				return domain.ErrFileNotFound
+			}
+			return domain.ErrInvalidStatus
 		}
-		return fmt.Errorf("dynamo update status: %w", err)
+		return fmt.Errorf("dynamo transition: %w", err)
 	}
 	return nil
 }

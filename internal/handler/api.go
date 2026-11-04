@@ -22,7 +22,7 @@ type FileRepository interface {
 	Get(ctx context.Context, userID, fileID string) (*domain.File, error)
 	Save(ctx context.Context, f *domain.File) error
 	List(ctx context.Context, userID, cursor string, limit int) ([]*domain.File, string, error)
-	UpdateStatus(ctx context.Context, userID, fileID string, status domain.Status) error
+	Transition(ctx context.Context, file *domain.File, from domain.Status) error
 }
 type TokenValidator interface {
 	ValidateToken(token string) (*domain.Claims, error)
@@ -114,10 +114,32 @@ func (api *API) MarkDeleted(ctx context.Context, userID, fileID string) error {
 	if fileID == "" {
 		return domain.ErrFileNotFound
 	}
-	if err := api.repo.UpdateStatus(ctx, userID, fileID, domain.StatusDeleted); err != nil {
+
+	file, err := api.repo.Get(ctx, userID, fileID)
+	if err != nil {
 		return err
 	}
-	// Dynamo is updated first so the API stops serving the file straight away.
-	// A failure here only leaks the bytes, which the reconciliation job sweeps.
-	return api.s3.DeleteFile(ctx, domain.S3KeyFor(userID, fileID))
+	if file == nil {
+		return domain.ErrFileNotFound
+	}
+
+	switch {
+	case file.CanBeTrashed():
+		file.Status = domain.StatusTrashed
+		file.TrashedAt = time.Now()
+		file.TrashExpiresAt = file.TrashedAt.Add(domain.DefaultTrashRetention)
+		return api.repo.Transition(ctx, file, domain.StatusUploaded)
+
+	case file.IsTrashed():
+		file.Status = domain.StatusDeleted
+		if err := api.repo.Transition(ctx, file, domain.StatusTrashed); err != nil {
+			return err
+		}
+		// Dynamo is updated first so the API stops serving the file straight away.
+		// A failure here only leaks the bytes, which the reconciliation job sweeps.
+		return api.s3.DeleteFile(ctx, file.S3Key)
+
+	default:
+		return domain.ErrInvalidStatus
+	}
 }
