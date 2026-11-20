@@ -135,6 +135,17 @@ That ordering leaves orphaned bytes behind whenever the second step fails, which
 
 The job finds that work without scanning the table. Every record that may need cleaning carries `gsiPK = SWEEP#<status>` and `gsiSK = <due time>`, the keys of a sparse index: `uploaded` files and records whose object is already gone (`s3Deleted`) leave those attributes out, so they never appear in it. One query per status returns exactly the records that are due.
 
+The job is the sweeper Lambda (`cmd/sweeper`), invoked once a day by EventBridge Scheduler. Each run goes through four statuses:
+
+| Status | Due when | What the sweeper does |
+|---|---|---|
+| `trashed` | `trashExpiresAt` has passed | Moves the record to `deleted`, deletes the object, sets `s3Deleted` |
+| `deleted` | right away | Deletes the object left behind by a failed permanent delete, sets `s3Deleted` |
+| `rejected` | right away | Same, for a rejected upload whose object survived |
+| `pending` | one hour after `createdAt` | Asks S3: object present → `uploaded`; no object → the record is deleted |
+
+Every write is conditional on the status the sweeper read, so a file that changes while it is swept (a late worker, a restore) makes the write fail and is skipped rather than overwritten. One run reads at most 500 due files per status; a backlog is worked through over the following runs. The sweeper's role also gets `s3:ListBucket`: without it, `HeadObject` on a missing key answers `403` instead of `404`, and an abandoned upload would look like an error instead of an absence.
+
 ### Why reconciliation instead of tag-based lifecycle rules
 
 S3 lifecycle rules can expire objects by tag, so an appealing alternative is to tag an object `status=deleted` and let a lifecycle rule remove it a day later.
@@ -170,9 +181,6 @@ The layout is defined once, in `domain.S3KeyFor`, with `domain.ParseS3Key` as it
 
 ## Not yet implemented
 
-The diagram marks these with dashed borders:
-
-- The reconciliation Lambda and its EventBridge Scheduler rule. The design above describes the intended behaviour; `cmd/sweeper` exists but does nothing yet.
 - Records expiring through the DynamoDB TTL. The table has TTL enabled on `expiresAt`, but nothing writes that attribute yet.
 - A restore-from-trash route.
 
@@ -213,6 +221,8 @@ curl -X PUT --cacert ~/.aws/emulator/9297/ca.pem -H 'Content-Type: application/p
 make worker               # hands the queued S3 events to the worker Lambda
 curl http://127.0.0.1:3000/files/<id> -H "$AUTH"      # now uploaded, with a download URL
 curl -X DELETE http://127.0.0.1:3000/files/<id> -H "$AUTH"   # to the trash; again to delete for good
+
+make sweeper              # one run of the sweeper, as EventBridge Scheduler would trigger it
 ```
 
 `make worker` does by hand what the event source mapping does on AWS: it reads up to ten messages, invokes the worker with them, and deletes the ones the worker did not report as failed. Locally the mapping is created disabled (`queue_trigger_enabled = false`), because the emulator would pick the messages up, fail to invoke the Lambda and move them to the DLQ.
@@ -253,7 +263,7 @@ The Terraform lives next to the code because it only describes this service: a n
 cmd/
   api/            entrypoint for the HTTP Lambda
   worker/         entrypoint for the SQS consumer Lambda
-  sweeper/        entrypoint for the reconciliation Lambda (not implemented)
+  sweeper/        entrypoint for the sweeper Lambda, run daily by EventBridge Scheduler
 internal/
   domain/         entities, statuses, errors, S3 key format — no AWS imports
   handler/        use cases, HTTP router, SQS worker, transport DTOs
@@ -264,7 +274,7 @@ internal/
 infra/            Terraform: root module and one module per AWS service
 local/            AWS Emulator image, env.sh, the local backend config, the SAM template and scripts
 docs/             architecture diagram (SVG source + PNG)
-Makefile          build, emulator, emulator-stop, infra-local, api, worker, token
+Makefile          build, emulator, emulator-stop, infra-local, api, worker, sweeper, token
 ```
 
 `internal/domain` depends on nothing. The adapters depend on the ports declared alongside the use cases, so swapping DynamoDB or S3 means writing a new adapter rather than touching the business logic.
