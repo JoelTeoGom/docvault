@@ -182,7 +182,7 @@ The diagram marks these with dashed borders:
 
 ### Locally, against the AWS Emulator
 
-Everything except running the Lambda code can be tested without an AWS account, with [AWS Emulator](https://github.com/aws/aws-emulator) in Docker. You need Docker, Go, Terraform and the AWS CLI.
+The whole flow can be tested without an AWS account. [AWS Emulator](https://github.com/aws/aws-emulator) plays DynamoDB, S3 and SQS, and [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/using-sam-cli.html) runs the Lambdas in Docker with the same `provided.al2023` image AWS uses. You need Docker, Go, Terraform, the AWS CLI, SAM CLI and `jq`.
 
 ```bash
 make emulator      # starts the emulator on https://127.0.0.1:9297
@@ -197,6 +197,27 @@ aws s3 ls
 ```
 
 The emulator keeps everything in memory, so `make emulator-stop` wipes it and the next `make infra-local` starts from scratch. It serves the AWS APIs but does not run Lambda code, and it does not evaluate IAM policies: permissions are only proven on AWS.
+
+Then run the code. `make api` serves the API on `http://127.0.0.1:3000`: SAM reads the routes from `local/template.yaml`, turns each request into the same payload 2.0 event API Gateway sends, and invokes the API Lambda against the emulator. In another terminal:
+
+```bash
+TOKEN=$(make -s token)    # a test JWT for local-user, signed with the local secret
+AUTH="Authorization: Bearer $TOKEN"
+
+curl -X POST http://127.0.0.1:3000/files -H "$AUTH" \
+  -d '{"filename":"test.pdf","size":1234,"mime":"application/pdf"}'
+# upload with the presigned_url from the response; the body must be exactly 1234 bytes
+curl -X PUT --cacert ~/.aws/emulator/9297/ca.pem -H 'Content-Type: application/pdf' \
+  --data-binary @test.pdf '<presigned_url>'
+
+make worker               # hands the queued S3 events to the worker Lambda
+curl http://127.0.0.1:3000/files/<id> -H "$AUTH"      # now uploaded, with a download URL
+curl -X DELETE http://127.0.0.1:3000/files/<id> -H "$AUTH"   # to the trash; again to delete for good
+```
+
+`make worker` does by hand what the event source mapping does on AWS: it reads up to ten messages, invokes the worker with them, and deletes the ones the worker did not report as failed. Locally the mapping is created disabled (`queue_trigger_enabled = false`), because the emulator would pick the messages up, fail to invoke the Lambda and move them to the DLQ.
+
+Two details make the Lambdas reach the emulator from inside their containers. The emulator's certificate is only valid for `localhost`, so the containers share a Docker network with it and resolve `localhost` to its address. And the S3 client uses path-style URLs (`S3_USE_PATH_STYLE`), because `bucket.localhost` is not covered by that certificate; on AWS the variable is unset and the default virtual-hosted URLs are used.
 
 ### On AWS
 
@@ -241,9 +262,9 @@ internal/
     repository/   DynamoDB access, item mapping, cursor encoding
     storage/      S3 presigning and deletion
 infra/            Terraform: root module and one module per AWS service
-local/            AWS Emulator image, env.sh and the local backend config
+local/            AWS Emulator image, env.sh, the local backend config, the SAM template and scripts
 docs/             architecture diagram (SVG source + PNG)
-Makefile          build, emulator, emulator-stop, infra-local
+Makefile          build, emulator, emulator-stop, infra-local, api, worker, token
 ```
 
 `internal/domain` depends on nothing. The adapters depend on the ports declared alongside the use cases, so swapping DynamoDB or S3 means writing a new adapter rather than touching the business logic.
