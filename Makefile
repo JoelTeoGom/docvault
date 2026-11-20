@@ -10,7 +10,7 @@ SAM_NETWORK = --docker-network $(DOCKER_NETWORK) \
 
 export SAM_CLI_TELEMETRY := 0
 
-.PHONY: build emulator emulator-stop infra-local api worker sweeper token
+.PHONY: build emulator emulator-stop infra-local api worker sweeper e2e token
 
 build:
 	for function in $(FUNCTIONS); do \
@@ -53,6 +53,10 @@ sweeper: build
 	$(LOCAL_ENV) ./local/sam-env.sh
 	$(LOCAL_ENV) echo '{}' | sam local invoke SweeperFunction --template local/template.yaml --env-vars build/sam-env.json \
 		--event - --region $$AWS_REGION $(SAM_NETWORK)
+
+e2e: build
+	$(LOCAL_ENV) ./local/sam-env.sh
+	$(LOCAL_ENV) ./local/e2e.sh $(SAM_NETWORK)
 
 token:
 	@$(LOCAL_ENV) ./local/token.sh $(USER_ID)
