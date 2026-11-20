@@ -49,10 +49,12 @@ func (r *DynamoDbRepo) Get(ctx context.Context, userID, fileID string) (*domain.
 		return nil, domain.ErrFileNotFound // a miss is NOT an error in Dynamo
 	}
 
-	var fi fileItem
-	attributevalue.UnmarshalMap(out.Item, &fi)
+	var storedFile fileItem
+	if err := attributevalue.UnmarshalMap(out.Item, &storedFile); err != nil {
+		return nil, fmt.Errorf("dynamo unmarshal: %w", err)
+	}
 
-	return fi.ToDomainFile(), nil
+	return storedFile.ToDomainFile(), nil
 }
 
 func (r *DynamoDbRepo) Save(ctx context.Context, file *domain.File) error {

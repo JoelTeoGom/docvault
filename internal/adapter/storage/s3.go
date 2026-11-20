@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,9 +22,12 @@ type S3Service struct {
 }
 
 func NewS3Service(ctx context.Context, bucket string) *S3Service {
-	cfg, _ := config.LoadDefaultConfig(ctx)
+	awsConfig, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		log.Fatalf("unable to load SDK config, %v", err)
+	}
 
-	s3Client := s3.NewFromConfig(cfg)
+	s3Client := s3.NewFromConfig(awsConfig)
 	presignCli := s3.NewPresignClient(s3Client)
 	return &S3Service{
 		s3Client:      s3Client,
