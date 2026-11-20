@@ -91,6 +91,11 @@ func (w *Worker) processMessage(ctx context.Context, msg events.SQSMessage) erro
 			}
 			if err := w.storage.DeleteFile(ctx, r.S3.Object.Key); err != nil {
 				slog.ErrorContext(ctx, "failed to delete oversized object", "key", r.S3.Object.Key)
+				return nil
+			}
+			file.S3Deleted = true
+			if err := w.repo.Transition(ctx, file, domain.StatusRejected); err != nil {
+				return fmt.Errorf("mark rejected object deleted: %w", err)
 			}
 			return nil
 		}

@@ -103,6 +103,15 @@ func TestSweepIndexIsSparse(t *testing.T) {
 			wantDueAt:        createdAt.Unix(),
 		},
 		{
+			name: "rejected with the object gone leaves the index",
+			file: func() *domain.File {
+				file := newFile(domain.StatusRejected)
+				file.S3Deleted = true
+				return file
+			}(),
+			wantInIndex: false,
+		},
+		{
 			name:             "deleted without a confirmed object is retried",
 			file:             newFile(domain.StatusDeleted),
 			wantInIndex:      true,

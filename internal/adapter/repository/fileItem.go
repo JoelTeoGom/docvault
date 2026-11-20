@@ -66,7 +66,7 @@ func sweepKeysFor(f *domain.File) (partitionKey string, dueAt int64) {
 	if f.Status == domain.StatusUploaded {
 		return "", 0
 	}
-	if f.Status == domain.StatusDeleted && f.S3Deleted {
+	if f.S3Deleted {
 		return "", 0
 	}
 

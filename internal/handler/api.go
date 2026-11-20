@@ -137,7 +137,11 @@ func (api *API) MarkDeleted(ctx context.Context, userID, fileID string) error {
 		}
 		// Dynamo is updated first so the API stops serving the file straight away.
 		// A failure here only leaks the bytes, which the reconciliation job sweeps.
-		return api.s3.DeleteFile(ctx, file.S3Key)
+		if err := api.s3.DeleteFile(ctx, file.S3Key); err != nil {
+			return err
+		}
+		file.S3Deleted = true
+		return api.repo.Transition(ctx, file, domain.StatusDeleted)
 
 	default:
 		return domain.ErrInvalidStatus
