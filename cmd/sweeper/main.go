@@ -12,11 +12,6 @@ import (
 )
 
 func main() {
-	eventBusName, ok := os.LookupEnv("EVENT_BUS_NAME")
-	if !ok {
-		panic("Need EVENT_BUS_NAME environment variable")
-	}
-
 	tableName, ok := os.LookupEnv("TABLE")
 	if !ok {
 		panic("Need TABLE environment variable")
@@ -29,6 +24,6 @@ func main() {
 	ctx := context.Background()
 	dynamodb := repository.NewDynamoDBStore(ctx, tableName)
 	s3 := storage.NewS3Service(ctx, s3Bucket, os.Getenv("S3_USE_PATH_STYLE") == "true")
-	bus := handler.NewEventBridgeScheduler(ctx, eventBusName, s3, dynamodb)
-	lambda.Start(bus.FileSweeperHandler)
+	sweeper := handler.NewSweeper(dynamodb, s3)
+	lambda.Start(sweeper.HandleRequest)
 }

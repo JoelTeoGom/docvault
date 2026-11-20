@@ -3,12 +3,10 @@ module github.com/JoelTeoGom/docvault
 go 1.25.3
 
 require (
-	github.com/aws-samples/serverless-go-demo v0.0.0-20220321202300-a07a55b1ac37
 	github.com/aws/aws-lambda-go v1.54.0
 	github.com/aws/aws-sdk-go-v2 v1.43.6
 	github.com/aws/aws-sdk-go-v2/config v1.32.35
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.20.59
-	github.com/aws/aws-sdk-go-v2/service/cloudwatchevents v1.35.6
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.63.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.0
 	github.com/golang-jwt/jwt/v5 v5.3.1

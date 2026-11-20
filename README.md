@@ -172,7 +172,7 @@ The layout is defined once, in `domain.S3KeyFor`, with `domain.ParseS3Key` as it
 
 The diagram marks these with dashed borders:
 
-- The reconciliation Lambda and its EventBridge Scheduler rule. The design above describes the intended behaviour; `cmd/event-bridge` exists but is empty.
+- The reconciliation Lambda and its EventBridge Scheduler rule. The design above describes the intended behaviour; `cmd/sweeper` exists but does nothing yet.
 - Records expiring through the DynamoDB TTL. The table has TTL enabled on `expiresAt`, but nothing writes that attribute yet.
 - A restore-from-trash route.
 
@@ -253,7 +253,7 @@ The Terraform lives next to the code because it only describes this service: a n
 cmd/
   api/            entrypoint for the HTTP Lambda
   worker/         entrypoint for the SQS consumer Lambda
-  event-bridge/   entrypoint for the reconciliation Lambda (not implemented)
+  sweeper/        entrypoint for the reconciliation Lambda (not implemented)
 internal/
   domain/         entities, statuses, errors, S3 key format — no AWS imports
   handler/        use cases, HTTP router, SQS worker, transport DTOs
