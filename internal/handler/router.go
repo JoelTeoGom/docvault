@@ -65,6 +65,8 @@ func (r *Router) HandleRequest(ctx context.Context, req events.APIGatewayV2HTTPR
 		return r.handleListFiles(ctx, claims.UserID, req)
 	case "DELETE /files/{fileID}":
 		return r.handleDeleteFile(ctx, claims.UserID, req)
+	case "POST /files/{fileID}/restore":
+		return r.handleRestoreFile(ctx, claims.UserID, req)
 	default:
 		return jsonResponse(http.StatusNotFound, ErrorResponse{Error: "route not found"}), nil
 	}
@@ -137,4 +139,18 @@ func (r *Router) handleDeleteFile(ctx context.Context, userID string, req events
 	}
 
 	return &events.APIGatewayV2HTTPResponse{StatusCode: http.StatusNoContent}, nil
+}
+
+func (r *Router) handleRestoreFile(ctx context.Context, userID string, req events.APIGatewayV2HTTPRequest) (*events.APIGatewayV2HTTPResponse, error) {
+	fileID := req.PathParameters["fileID"]
+
+	file, presignedURL, err := r.API.Restore(ctx, userID, fileID)
+	if err != nil {
+		return errorResponse(ctx, err), nil
+	}
+
+	return jsonResponse(http.StatusOK, FileResponse{
+		PresignedURL: presignedURL,
+		File:         toFileDTO(file),
+	}), nil
 }

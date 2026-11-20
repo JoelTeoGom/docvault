@@ -7,6 +7,7 @@ locals {
     "GET /files",
     "GET /files/{fileID}",
     "DELETE /files/{fileID}",
+    "POST /files/{fileID}/restore",
   ]
 }
 

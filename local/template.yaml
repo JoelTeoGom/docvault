@@ -38,6 +38,9 @@ Resources:
         Delete:
           Type: HttpApi
           Properties: { Path: "/files/{fileID}", Method: DELETE }
+        Restore:
+          Type: HttpApi
+          Properties: { Path: "/files/{fileID}/restore", Method: POST }
 
   WorkerFunction:
     Type: AWS::Serverless::Function

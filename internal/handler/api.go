@@ -65,6 +65,40 @@ func (api *API) Get(ctx context.Context, userID, fileID string) (*domain.File, s
 	return file, presignedURL, nil
 }
 
+func (api *API) Restore(ctx context.Context, userID, fileID string) (*domain.File, string, error) {
+	if fileID == "" {
+		return nil, "", domain.ErrFileNotFound
+	}
+	if userID == "" {
+		return nil, "", domain.ErrUnauthorized
+	}
+
+	file, err := api.repo.Get(ctx, userID, fileID)
+	if err != nil {
+		return nil, "", err
+	}
+	if file == nil {
+		return nil, "", domain.ErrFileNotFound
+	}
+	if !file.CanBeRestored() {
+		return nil, "", domain.ErrInvalidStatus
+	}
+
+	file.Status = domain.StatusUploaded
+	file.TrashedAt = time.Time{}
+	file.TrashExpiresAt = time.Time{}
+	if err := api.repo.Transition(ctx, file, domain.StatusTrashed); err != nil {
+		return nil, "", err
+	}
+
+	presignedURL, err := api.s3.PresignDownload(ctx, file.S3Key)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return file, presignedURL, nil
+}
+
 // Save records the pending file and returns it along with a presigned URL the
 // client uses to upload the bytes directly to S3.
 func (api *API) Save(ctx context.Context, userId, filename string, size int64, mime string) (*domain.File, string, error) {
