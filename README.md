@@ -37,6 +37,7 @@ All routes require an `Authorization: Bearer <jwt>` header. The token must be si
 | `GET /files` | Cursor-paginated metadata list, newest first. Deleted and rejected files are left out. Signs no URLs |
 | `GET /files/{fileID}` | Returns metadata plus a presigned `GET` URL. `409` while the upload is still `pending`, `410` if the file is in the trash |
 | `DELETE /files/{fileID}` | First call moves an `uploaded` file to the trash for 24 hours. A second call on a trashed file deletes it for good: the record moves to `deleted` and the object is removed from S3 |
+| `POST /files/{fileID}/restore` | Brings a trashed file back to `uploaded` and returns a presigned `GET` URL. `409` if the file is not in the trash |
 
 `POST /files` accepts `{"filename": "...", "size": 1234, "mime": "application/pdf"}` and returns:
 
@@ -127,7 +128,9 @@ That problem does not arise here. The backend writes only to DynamoDB. The event
 
 ## Trash and reconciliation
 
-`DELETE` works in two steps, like a desktop trash. The first call moves an `uploaded` file to `trashed` and sets `trashExpiresAt` 24 hours ahead: downloads stop (`GET` answers `410`) but the bytes stay, which keeps the door open for a restore flow. A second `DELETE` on a trashed file is the permanent one: the record moves to `deleted`, the object is removed from S3, and the record is flagged `s3Deleted`. `deleted` and `rejected` records are kept as history, and the listing hides them.
+`DELETE` works in two steps, like a desktop trash. The first call moves an `uploaded` file to `trashed` and sets `trashExpiresAt` 24 hours ahead: downloads stop (`GET` answers `410`) but the bytes stay. Until then `POST /files/{fileID}/restore` brings the file back to `uploaded`. A second `DELETE` on a trashed file is the permanent one: the record moves to `deleted`, the object is removed from S3, and the record is flagged `s3Deleted`.
+
+`deleted` and `rejected` records are kept as history for 30 days, hidden from the listing. Closing a record sets `expiresAt`, and the table's TTL removes it once that time has passed, for free and without a job.
 
 The permanent delete is ordered deliberately: mark the record first, delete the object second. The two possible intermediate states are not equally bad. A live object whose record says `deleted` is an invisible orphan costing fractions of a cent. A deleted object whose record says `uploaded` is a broken link the user clicks and a support ticket. Only one of those is acceptable, so the write that closes the user-visible door happens first.
 
@@ -178,11 +181,6 @@ The layout is defined once, in `domain.S3KeyFor`, with `domain.ParseS3Key` as it
 - **No multipart upload.** A single `PUT` caps out at 5 GB and cannot retry individual parts, so a failure near the end of a large upload restarts the whole transfer. Irrelevant under a 50 MB limit, and a blocker the moment that limit moves.
 - **The frontend polls.** There is no push channel, so a client watching a `pending` file has to poll `GET /files/{id}` until the worker flips it to `uploaded`.
 - **Single-region, no replication.** Bucket and table live in one region.
-
-## Not yet implemented
-
-- Records expiring through the DynamoDB TTL. The table has TTL enabled on `expiresAt`, but nothing writes that attribute yet.
-- A restore-from-trash route.
 
 ## Running it
 
