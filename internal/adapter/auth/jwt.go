@@ -37,11 +37,11 @@ func (s *JWTService) GenerateAccessToken(claims *domain.Claims) (string, error) 
 
 func (s *JWTService) ValidateToken(tokenString string) (*domain.Claims, error) {
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected algorithm: %v", t.Header["alg"])
-		}
 		return s.secretKey, nil
-	})
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		jwt.WithExpirationRequired(),
+	)
 	if err != nil {
 		return nil, err
 	}
