@@ -17,3 +17,11 @@ module "sqs" {
   bucket_name = module.s3.bucket_name
   bucket_arn  = module.s3.bucket_arn
 }
+
+module "iam" {
+  source       = "./modules/iam"
+  project_name = var.project_name
+  table_arn    = module.dynamodb.table_arn
+  bucket_arn   = module.s3.bucket_arn
+  queue_arn    = module.sqs.queue_arn
+}
