@@ -64,3 +64,11 @@ resource "aws_lambda_event_source_mapping" "uploads" {
     maximum_concurrency = 2
   }
 }
+
+module "apigateway" {
+  source               = "./modules/apigateway"
+  project_name         = var.project_name
+  allowed_origins      = var.allowed_origins
+  lambda_invoke_arn    = module.api_lambda.invoke_arn
+  lambda_function_name = module.api_lambda.function_name
+}

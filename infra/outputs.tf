@@ -9,3 +9,7 @@ output "bucket_name" {
 output "queue_url" {
   value = module.sqs.queue_url
 }
+
+output "api_endpoint" {
+  value = module.apigateway.api_endpoint
+}
