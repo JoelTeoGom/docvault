@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Runtime: provided.al2023
+    Architectures: [arm64]
+    Handler: bootstrap
+    Timeout: 10
+    Environment:
+      Variables:
+        TABLE: ""
+        S3_BUCKET: ""
+        S3_USE_PATH_STYLE: "true"
+        AWS_ENDPOINT_URL: ""
+        AWS_CA_BUNDLE: ""
+        AWS_ACCESS_KEY_ID: ""
+        AWS_SECRET_ACCESS_KEY: ""
+
+Resources:
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../build/api
+      Environment:
+        Variables:
+          JWT_SECRET: ""
+      Events:
+        Upload:
+          Type: HttpApi
+          Properties: { Path: /files, Method: POST }
+        List:
+          Type: HttpApi
+          Properties: { Path: /files, Method: GET }
+        Get:
+          Type: HttpApi
+          Properties: { Path: "/files/{fileID}", Method: GET }
+        Delete:
+          Type: HttpApi
+          Properties: { Path: "/files/{fileID}", Method: DELETE }
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../build/worker

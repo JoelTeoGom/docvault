@@ -2,8 +2,15 @@ EMULATOR_HOME := $(HOME)/.aws/emulator
 FUNCTIONS := api worker
 LOCAL_ENV := . ./local/env.sh &&
 STATE_BUCKET := docvault-tfstate
+DOCKER_NETWORK := docvault-net
 
-.PHONY: build emulator emulator-stop infra-local
+# The emulator certificate is only valid for localhost, so inside the Lambda containers localhost points at the emulator.
+SAM_NETWORK = --docker-network $(DOCKER_NETWORK) \
+	--add-host localhost:$$(docker inspect -f '{{(index .NetworkSettings.Networks "$(DOCKER_NETWORK)").IPAddress}}' docvault-emulator)
+
+export SAM_CLI_TELEMETRY := 0
+
+.PHONY: build emulator emulator-stop infra-local api worker token
 
 build:
 	for function in $(FUNCTIONS); do \
@@ -16,7 +23,8 @@ build:
 
 emulator:
 	docker build -t docvault-emulator local/emulator
-	docker run -d --rm --name docvault-emulator --memory=2g \
+	docker network inspect $(DOCKER_NETWORK) >/dev/null 2>&1 || docker network create $(DOCKER_NETWORK)
+	docker run -d --rm --name docvault-emulator --network $(DOCKER_NETWORK) --memory=2g \
 		-p 127.0.0.1:9297:9297 \
 		-e HOME=$(HOME) -v $(EMULATOR_HOME):$(EMULATOR_HOME) \
 		docvault-emulator -p 9297 --telemetry off
@@ -32,3 +40,14 @@ infra-local: build
 			--versioning-configuration Status=Enabled )
 	$(LOCAL_ENV) terraform -chdir=infra init -reconfigure -backend-config=../local/backend.hcl
 	$(LOCAL_ENV) terraform -chdir=infra apply
+
+api: build
+	$(LOCAL_ENV) ./local/sam-env.sh
+	$(LOCAL_ENV) sam local start-api --template local/template.yaml --env-vars build/sam-env.json --region $$AWS_REGION $(SAM_NETWORK)
+
+worker: build
+	$(LOCAL_ENV) ./local/sam-env.sh
+	$(LOCAL_ENV) ./local/worker.sh $(SAM_NETWORK)
+
+token:
+	@$(LOCAL_ENV) ./local/token.sh $(USER_ID)
