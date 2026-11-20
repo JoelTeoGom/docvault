@@ -13,7 +13,7 @@
 
   <rect x="0" y="0" width="1440" height="1010" fill="#FFFFFF"/>
 
-  <text x="60" y="52" font-size="27" font-weight="700" fill="#16191F">pdfbox-aws — architecture</text>
+  <text x="60" y="52" font-size="27" font-weight="700" fill="#16191F">docvault — architecture</text>
   <text x="60" y="78" font-size="14.5" fill="#5A6B7B">Serverless multi-tenant PDF storage. File bytes never pass through the backend.</text>
 
   <!-- ============ Browser ============ -->
@@ -53,7 +53,7 @@
   <rect x="330" y="310" width="200" height="32" rx="8" fill="#3F8624"/>
   <rect x="330" y="334" width="200" height="8" fill="#3F8624"/>
   <text x="430" y="332" font-size="15" font-weight="700" fill="#FFFFFF" text-anchor="middle">S3</text>
-  <text x="430" y="367" font-size="12.5" fill="#37474F" text-anchor="middle">users/&lt;sub&gt;/&lt;uuid&gt;.pdf</text>
+  <text x="430" y="367" font-size="12.5" fill="#37474F" text-anchor="middle">users/&lt;user_id&gt;/&lt;ulid&gt;.pdf</text>
   <text x="430" y="386" font-size="12.5" fill="#37474F" text-anchor="middle">Private, no public access</text>
 
   <!-- ============ SQS ============ -->
@@ -101,7 +101,7 @@
   <text x="576" y="160" font-size="11.5" fill="#37474F" text-anchor="middle">invoke</text>
 
   <path d="M 830 152 L 1172 152" fill="none" stroke="#37474F" stroke-width="2" marker-end="url(#arrowGrey)"/>
-  <text x="1001" y="143" font-size="11.5" fill="#37474F" text-anchor="middle">PutItem · Query · UpdateItem</text>
+  <text x="1001" y="143" font-size="11.5" fill="#37474F" text-anchor="middle">GetItem · PutItem · Query</text>
 
   <!-- ============ Arrow: the point of the design ============ -->
   <path d="M 160 220 L 160 360 L 322 360" fill="none" stroke="#3F8624" stroke-width="5.5"
