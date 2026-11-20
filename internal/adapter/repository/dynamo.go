@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
+	"time"
 
 	"github.com/JoelTeoGom/docvault/internal/domain"
 
@@ -144,6 +146,48 @@ func (r *DynamoDbRepo) List(ctx context.Context, userID, cursor string, limit in
 	}
 
 	return files, EncodeCursor(startKey), nil
+}
+
+// maxSweepItems caps how many due files one sweep reads per status, so a
+// backlog is worked through over several runs instead of timing one out.
+const maxSweepItems = 500
+
+func (r *DynamoDbRepo) ListDue(ctx context.Context, status domain.Status, dueBefore time.Time) ([]*domain.File, error) {
+	var files []*domain.File
+	var startKey map[string]types.AttributeValue
+
+	for len(files) < maxSweepItems {
+		out, err := r.client.Query(ctx, &dynamodb.QueryInput{
+			TableName:              aws.String(r.tableName),
+			IndexName:              aws.String("sweep-index"),
+			KeyConditionExpression: aws.String("gsiPK = :status AND gsiSK <= :dueBefore"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":status":    &types.AttributeValueMemberS{Value: sweepPrefix + string(status)},
+				":dueBefore": &types.AttributeValueMemberN{Value: strconv.FormatInt(epochFromTime(dueBefore), 10)},
+			},
+			Limit:                  aws.Int32(int32(maxSweepItems - len(files))),
+			ExclusiveStartKey:      startKey,
+			ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("dynamo query sweep index: %w", err)
+		}
+
+		for _, item := range out.Items {
+			var storedFile fileItem
+			if err := attributevalue.UnmarshalMap(item, &storedFile); err != nil {
+				return nil, fmt.Errorf("dynamo unmarshal: %w", err)
+			}
+			files = append(files, storedFile.ToDomainFile())
+		}
+
+		startKey = out.LastEvaluatedKey
+		if len(startKey) == 0 {
+			break
+		}
+	}
+
+	return files, nil
 }
 
 // Transition stores file, already carrying its new status, but only if the
