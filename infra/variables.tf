@@ -25,3 +25,21 @@ variable "allowed_origins" {
   description = "Browser origins allowed to call the API and to use the presigned URLs."
   type        = list(string)
 }
+
+variable "jwt_secret" {
+  description = "HMAC key that signs and validates the access tokens."
+  type        = string
+  sensitive   = true
+}
+
+variable "log_retention_days" {
+  description = "Days the function logs are kept."
+  type        = number
+  default     = 14
+}
+
+variable "queue_trigger_enabled" {
+  description = "Whether the upload queue invokes the worker. Off locally, where the emulator cannot run it."
+  type        = bool
+  default     = true
+}

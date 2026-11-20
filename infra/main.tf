@@ -25,3 +25,42 @@ module "iam" {
   bucket_arn   = module.s3.bucket_arn
   queue_arn    = module.sqs.queue_arn
 }
+
+module "api_lambda" {
+  source             = "./modules/lambda"
+  function_name      = "${var.project_name}-api"
+  role_arn           = module.iam.api_role_arn
+  package_path       = "${path.root}/../build/api.zip"
+  log_retention_days = var.log_retention_days
+
+  environment = {
+    TABLE      = module.dynamodb.table_name
+    S3_BUCKET  = module.s3.bucket_name
+    JWT_SECRET = var.jwt_secret
+  }
+}
+
+module "worker_lambda" {
+  source             = "./modules/lambda"
+  function_name      = "${var.project_name}-worker"
+  role_arn           = module.iam.worker_role_arn
+  package_path       = "${path.root}/../build/worker.zip"
+  log_retention_days = var.log_retention_days
+
+  environment = {
+    TABLE     = module.dynamodb.table_name
+    S3_BUCKET = module.s3.bucket_name
+  }
+}
+
+resource "aws_lambda_event_source_mapping" "uploads" {
+  event_source_arn        = module.sqs.queue_arn
+  function_name           = module.worker_lambda.function_arn
+  enabled                 = var.queue_trigger_enabled
+  batch_size              = 10
+  function_response_types = ["ReportBatchItemFailures"]
+
+  scaling_config {
+    maximum_concurrency = 2
+  }
+}

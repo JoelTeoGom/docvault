@@ -1,6 +1,16 @@
 EMULATOR_HOME := $(HOME)/.aws/emulator
+FUNCTIONS := api worker
 
-.PHONY: emulator emulator-stop
+.PHONY: build emulator emulator-stop
+
+build:
+	for function in $(FUNCTIONS); do \
+		GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags lambda.norpc -trimpath -ldflags="-s -w -buildid=" \
+			-o build/$$function/bootstrap ./cmd/$$function || exit 1; \
+		touch -t 202001010000 build/$$function/bootstrap; \
+		rm -f build/$$function.zip; \
+		(cd build/$$function && zip -qX ../$$function.zip bootstrap) || exit 1; \
+	done
 
 emulator:
 	docker build -t docvault-emulator local/emulator

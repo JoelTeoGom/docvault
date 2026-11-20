@@ -11,3 +11,5 @@ export AWS_PAGER=""
 export TF_WORKSPACE=local
 export TF_VAR_s3_use_path_style=true
 export TF_VAR_allowed_origins='["http://localhost:5173"]'
+export TF_VAR_jwt_secret=local-secret
+export TF_VAR_queue_trigger_enabled=false
