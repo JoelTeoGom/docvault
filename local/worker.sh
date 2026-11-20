@@ -4,7 +4,8 @@ set -euo pipefail
 queue_url=$(terraform -chdir=infra output -raw queue_url)
 queue_arn=$(aws sqs get-queue-attributes --queue-url "$queue_url" --attribute-names QueueArn --query Attributes.QueueArn --output text)
 
-messages=$(aws sqs receive-message --queue-url "$queue_url" --max-number-of-messages 10 --wait-time-seconds 5 --output json)
+messages=$(aws sqs receive-message --queue-url "$queue_url" --max-number-of-messages 10 --wait-time-seconds 5 \
+  --attribute-names All --output json)
 if [ -z "$messages" ]; then
   echo "the queue is empty"
   exit 0
@@ -12,7 +13,7 @@ fi
 
 jq --arg arn "$queue_arn" --arg region "$AWS_REGION" '{Records: [.Messages[] | {
     messageId: .MessageId, receiptHandle: .ReceiptHandle, body: .Body, md5OfBody: .MD5OfBody,
-    attributes: {}, messageAttributes: {}, eventSource: "aws:sqs", eventSourceARN: $arn, awsRegion: $region}]}' \
+    attributes: (.Attributes // {}), messageAttributes: {}, eventSource: "aws:sqs", eventSourceARN: $arn, awsRegion: $region}]}' \
   <<<"$messages" > build/worker-event.json
 
 response=$(sam local invoke WorkerFunction --template local/template.yaml --env-vars build/sam-env.json \
