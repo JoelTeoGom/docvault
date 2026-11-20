@@ -227,6 +227,23 @@ make sweeper              # one run of the sweeper, as EventBridge Scheduler wou
 
 Two details make the Lambdas reach the emulator from inside their containers. The emulator's certificate is only valid for `localhost`, so the containers share a Docker network with it and resolve `localhost` to its address. And the S3 client uses path-style URLs (`S3_USE_PATH_STYLE`), because `bucket.localhost` is not covered by that certificate; on AWS the variable is unset and the default virtual-hosted URLs are used.
 
+### End-to-end test
+
+`make e2e` runs the whole backend as two users would, against the emulator, and checks every answer (52 checks, a couple of minutes). It needs `make emulator` and `make infra-local` first, and starts its own API on port 3001.
+
+| Area | What it checks |
+|---|---|
+| Authentication | No token, an expired token and a token signed with another secret are `401` |
+| Validation | Broken JSON, missing fields, a non-PDF and a file over 50 MB are refused |
+| Upload and download | A real PDF goes `pending` → `uploaded` through the worker; the presigned `PUT` refuses another content type; the downloaded bytes match the uploaded ones |
+| Isolation | Another user gets `404` reading, deleting or restoring the file, and does not see it listed |
+| Trash | Trash, `410` on download, restore, trash again, delete for good: the object is gone and the record carries `expiresAt` |
+| Rejection | An object whose size does not match the record is rejected and deleted |
+| Pagination | `limit` and `next_cursor` split the listing into pages |
+| Sweeper | An abandoned upload is removed, an upload whose event was lost is promoted, an expired trash is deleted for good, while a trash within retention and an upload in progress are left alone |
+
+The sweeper cases depend on time (one hour for a pending upload, 24 hours in the trash), so the test ages those records in DynamoDB instead of waiting, and drops the queued event to simulate a lost one.
+
 ### On AWS
 
 The state lives in an S3 bucket with versioning and locking. Create that bucket once, outside this Terraform, so a `destroy` can never delete its own state:
@@ -272,7 +289,7 @@ internal/
 infra/            Terraform: root module and one module per AWS service
 local/            AWS Emulator image, env.sh, the local backend config, the SAM template and scripts
 docs/             architecture diagram (SVG source + PNG)
-Makefile          build, emulator, emulator-stop, infra-local, api, worker, sweeper, token
+Makefile          build, emulator, emulator-stop, infra-local, api, worker, sweeper, e2e, token
 ```
 
 `internal/domain` depends on nothing. The adapters depend on the ports declared alongside the use cases, so swapping DynamoDB or S3 means writing a new adapter rather than touching the business logic.
