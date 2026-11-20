@@ -1,7 +1,9 @@
 EMULATOR_HOME := $(HOME)/.aws/emulator
 FUNCTIONS := api worker
+LOCAL_ENV := . ./local/env.sh &&
+STATE_BUCKET := docvault-tfstate
 
-.PHONY: build emulator emulator-stop
+.PHONY: build emulator emulator-stop infra-local
 
 build:
 	for function in $(FUNCTIONS); do \
@@ -21,3 +23,12 @@ emulator:
 
 emulator-stop:
 	docker stop docvault-emulator
+
+infra-local: build
+	$(LOCAL_ENV) aws s3api head-bucket --bucket $(STATE_BUCKET) 2>/dev/null || ( \
+		$(LOCAL_ENV) aws s3api create-bucket --bucket $(STATE_BUCKET) \
+			--create-bucket-configuration LocationConstraint=eu-west-1 >/dev/null && \
+		$(LOCAL_ENV) aws s3api put-bucket-versioning --bucket $(STATE_BUCKET) \
+			--versioning-configuration Status=Enabled )
+	$(LOCAL_ENV) terraform -chdir=infra init -reconfigure -backend-config=../local/backend.hcl
+	$(LOCAL_ENV) terraform -chdir=infra apply
