@@ -27,6 +27,10 @@ const (
 	MimeTypePDF = "application/pdf"
 
 	DefaultTrashRetention = 24 * time.Hour
+
+	// PendingUploadGrace covers the presigned URL lifetime, the transfer and the
+	// event delivery: a younger pending file may still be uploading.
+	PendingUploadGrace = time.Hour
 )
 
 type File struct {

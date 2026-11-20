@@ -230,3 +230,30 @@ func (r *DynamoDbRepo) Transition(ctx context.Context, file *domain.File, from d
 	}
 	return nil
 }
+
+// Delete removes the record of file only if its stored status is still from,
+// so a record a worker has just promoted is never deleted.
+func (r *DynamoDbRepo) Delete(ctx context.Context, file *domain.File, from domain.Status) error {
+	_, err := r.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(r.tableName),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: "USER#" + file.OwnerID},
+			"SK": &types.AttributeValueMemberS{Value: "FILE#" + file.ID},
+		},
+		ConditionExpression:                 aws.String("#status = :from"),
+		ExpressionAttributeNames:            map[string]string{"#status": "status"},
+		ExpressionAttributeValues:           map[string]types.AttributeValue{":from": &types.AttributeValueMemberS{Value: string(from)}},
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailureAllOld,
+	})
+	if err != nil {
+		var conditionFailed *types.ConditionalCheckFailedException
+		if errors.As(err, &conditionFailed) {
+			if len(conditionFailed.Item) == 0 {
+				return domain.ErrFileNotFound
+			}
+			return domain.ErrInvalidStatus
+		}
+		return fmt.Errorf("dynamo delete: %w", err)
+	}
+	return nil
+}

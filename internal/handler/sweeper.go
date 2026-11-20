@@ -13,6 +13,7 @@ import (
 type SweepRepository interface {
 	ListDue(ctx context.Context, status domain.Status, dueBefore time.Time) ([]*domain.File, error)
 	Transition(ctx context.Context, file *domain.File, from domain.Status) error
+	Delete(ctx context.Context, file *domain.File, from domain.Status) error
 }
 
 type SweepStorage interface {
@@ -31,23 +32,33 @@ func NewSweeper(repo SweepRepository, storage SweepStorage) *Sweeper {
 }
 
 func (s *Sweeper) HandleRequest(ctx context.Context) error {
-	failed := 0
+	sweeps := []struct {
+		status    domain.Status
+		dueBefore time.Time
+		sweep     func(context.Context, *domain.File) error
+	}{
+		{status: domain.StatusTrashed, dueBefore: s.now(), sweep: s.removeObject},
+		{status: domain.StatusDeleted, dueBefore: s.now(), sweep: s.removeObject},
+		{status: domain.StatusRejected, dueBefore: s.now(), sweep: s.removeObject},
+		{status: domain.StatusPending, dueBefore: s.now().Add(-domain.PendingUploadGrace), sweep: s.settlePending},
+	}
 
-	for _, status := range []domain.Status{domain.StatusTrashed, domain.StatusDeleted, domain.StatusRejected} {
-		files, err := s.repo.ListDue(ctx, status, s.now())
+	failed := 0
+	for _, current := range sweeps {
+		files, err := s.repo.ListDue(ctx, current.status, current.dueBefore)
 		if err != nil {
 			return err
 		}
 
 		for _, file := range files {
-			err := s.removeObject(ctx, file)
+			err := current.sweep(ctx, file)
 			if errors.Is(err, domain.ErrInvalidStatus) || errors.Is(err, domain.ErrFileNotFound) {
 				slog.InfoContext(ctx, "file changed during the sweep, skipped", "file", file.ID)
 				continue
 			}
 			if err != nil {
 				failed++
-				slog.ErrorContext(ctx, "sweep failed", "file", file.ID, "status", file.Status, "error", err)
+				slog.ErrorContext(ctx, "sweep failed", "file", file.ID, "status", current.status, "error", err)
 			}
 		}
 	}
@@ -56,6 +67,22 @@ func (s *Sweeper) HandleRequest(ctx context.Context) error {
 		return fmt.Errorf("sweep failed for %d files", failed)
 	}
 	return nil
+}
+
+// settlePending resolves an upload that never got its S3 event. The object is
+// the proof: if it exists the upload worked and the event was lost, and its size
+// already matches the record because Content-Length is part of the signature.
+func (s *Sweeper) settlePending(ctx context.Context, file *domain.File) error {
+	exists, err := s.storage.ObjectExists(ctx, file.S3Key)
+	if err != nil {
+		return err
+	}
+
+	if exists {
+		file.Status = domain.StatusUploaded
+		return s.repo.Transition(ctx, file, domain.StatusPending)
+	}
+	return s.repo.Delete(ctx, file, domain.StatusPending)
 }
 
 // removeObject deletes the bytes of a file the user can no longer reach. A

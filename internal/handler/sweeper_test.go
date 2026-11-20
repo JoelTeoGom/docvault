@@ -11,7 +11,16 @@ import (
 type fakeSweepRepository struct {
 	due         map[domain.Status][]*domain.File
 	stored      map[string]domain.File
+	deleted     map[string]bool
 	conflicting map[string]bool
+}
+
+func (r *fakeSweepRepository) Delete(_ context.Context, file *domain.File, _ domain.Status) error {
+	if r.conflicting[file.ID] {
+		return domain.ErrInvalidStatus
+	}
+	r.deleted[file.ID] = true
+	return nil
 }
 
 func (r *fakeSweepRepository) ListDue(_ context.Context, status domain.Status, _ time.Time) ([]*domain.File, error) {
@@ -52,6 +61,7 @@ func TestSweeperRemovesObjects(t *testing.T) {
 			domain.StatusRejected: {rejected},
 		},
 		stored:      map[string]domain.File{},
+		deleted:     map[string]bool{},
 		conflicting: map[string]bool{"restored": true},
 	}
 	storage := &fakeSweepStorage{objects: map[string]bool{
@@ -85,5 +95,33 @@ func TestSweeperRemovesObjects(t *testing.T) {
 
 	if !storage.objects[restored.S3Key] {
 		t.Error("restored: object of a file that left the trash was deleted")
+	}
+}
+
+func TestSweeperSettlesPendingUploads(t *testing.T) {
+	uploaded := &domain.File{ID: "uploaded", S3Key: "users/u/uploaded.pdf", Status: domain.StatusPending}
+	abandoned := &domain.File{ID: "abandoned", S3Key: "users/u/abandoned.pdf", Status: domain.StatusPending}
+	promoted := &domain.File{ID: "promoted", S3Key: "users/u/promoted.pdf", Status: domain.StatusPending}
+
+	repo := &fakeSweepRepository{
+		due:         map[domain.Status][]*domain.File{domain.StatusPending: {uploaded, abandoned, promoted}},
+		stored:      map[string]domain.File{},
+		deleted:     map[string]bool{},
+		conflicting: map[string]bool{"promoted": true},
+	}
+	storage := &fakeSweepStorage{objects: map[string]bool{uploaded.S3Key: true}}
+
+	if err := NewSweeper(repo, storage).HandleRequest(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := repo.stored["uploaded"].Status; got != domain.StatusUploaded {
+		t.Errorf("uploaded: status %s, want %s", got, domain.StatusUploaded)
+	}
+	if !repo.deleted["abandoned"] {
+		t.Error("abandoned: record not deleted")
+	}
+	if repo.deleted["promoted"] {
+		t.Error("promoted: record deleted after the worker moved it on")
 	}
 }
