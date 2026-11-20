@@ -20,3 +20,8 @@ variable "s3_use_path_style" {
   type        = bool
   default     = false
 }
+
+variable "allowed_origins" {
+  description = "Browser origins allowed to call the API and to use the presigned URLs."
+  type        = list(string)
+}

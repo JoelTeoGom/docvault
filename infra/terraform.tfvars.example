@@ -13,10 +13,6 @@ project_name = "docvault"
 # avoids cross-region data transfer charges on every upload event.
 aws_region = "eu-west-1"
 
-# S3 bucket holding the PDFs. Bucket names are globally unique across all AWS
-# accounts, so this needs a suffix nobody else has taken.
-bucket_name = "docvault-files-CHANGE-ME"
-
 # HMAC secret used to sign and validate access tokens (HS256). Generate one with
 # `openssl rand -base64 48`.
 #
