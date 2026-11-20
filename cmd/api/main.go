@@ -28,7 +28,7 @@ func main() {
 
 	ctx := context.Background()
 	dynamodb := repository.NewDynamoDBStore(ctx, tableName)
-	s3 := storage.NewS3Service(ctx, bucket)
+	s3 := storage.NewS3Service(ctx, bucket, os.Getenv("S3_USE_PATH_STYLE") == "true")
 	tokenValidator := auth.NewJWTService(secret)
 
 	api := handler.NewAPI(dynamodb, s3)

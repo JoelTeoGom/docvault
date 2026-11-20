@@ -23,7 +23,7 @@ func main() {
 
 	ctx := context.Background()
 	dynamodb := repository.NewDynamoDBStore(ctx, tableName)
-	s3 := storage.NewS3Service(ctx, s3Bucket)
+	s3 := storage.NewS3Service(ctx, s3Bucket, os.Getenv("S3_USE_PATH_STYLE") == "true")
 	worker := handler.NewWorker(dynamodb, s3)
 	lambda.Start(worker.HandleRequest)
 }

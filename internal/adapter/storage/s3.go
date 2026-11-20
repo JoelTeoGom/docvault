@@ -21,13 +21,15 @@ type S3Service struct {
 	bucket        string
 }
 
-func NewS3Service(ctx context.Context, bucket string) *S3Service {
+func NewS3Service(ctx context.Context, bucket string, usePathStyle bool) *S3Service {
 	awsConfig, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		log.Fatalf("unable to load SDK config, %v", err)
 	}
 
-	s3Client := s3.NewFromConfig(awsConfig)
+	s3Client := s3.NewFromConfig(awsConfig, func(options *s3.Options) {
+		options.UsePathStyle = usePathStyle
+	})
 	presignCli := s3.NewPresignClient(s3Client)
 	return &S3Service{
 		s3Client:      s3Client,
