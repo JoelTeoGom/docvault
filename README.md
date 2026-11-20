@@ -25,7 +25,7 @@ The consequence is that Lambda handles kilobytes of JSON regardless of whether t
 | Observability | CloudWatch Logs |
 | Identity | IAM roles, JWT (HS256) |
 | Provisioning | Terraform, state in S3 with locking |
-| Local testing | AWS Emulator in Docker |
+| Local testing | AWS Emulator and SAM CLI, in Docker |
 
 ## API
 
@@ -83,8 +83,8 @@ Every step between the client's request and the record reaching `uploaded` can f
 | 6 | S3 rejects the `PUT` (size or type ≠ signature) | `pending` record, no object | Reconciliation sweep |
 | 7 | Upload succeeds, the S3 event never arrives | `pending` record, **object present** | Sweep promotes the record to `uploaded` |
 | 8 | Worker fails transiently (throttling, timeout) | `pending` record, object present | SQS redelivery via partial batch failure |
-| 9 | Worker reads the record before it is visible | `pending` record, object present | Retried for the first three receives, then treated as an orphan |
-| 10 | Event body or object key is unparseable | Object present, no usable record | Permanent failure: the object is deleted and the message dropped |
+| 9 | Worker reads the record before it is visible | `pending` record, object present | Retried for the first three receives; after that the object counts as an orphan, it is deleted and the message dropped |
+| 10 | Event body or object key is unparseable | Object present, no usable record | Permanent failure: the message is logged and dropped. A key outside `users/<user_id>/` was not written through this API, so the object is left alone |
 | 11 | The same event is delivered twice | Record already `uploaded` | Worker is idempotent; a non-`pending` record is left alone |
 | 12 | Worker keeps failing past `maxReceiveCount` | `pending` record, object present | Message to the DLQ; the sweep still reconciles the pair |
 | 13 | `DELETE` arrives while the upload is in flight | `pending` record, unchanged | `409`: only an `uploaded` file can go to the trash, so an upload is never orphaned by a delete |
@@ -163,7 +163,7 @@ Lifecycle rules still earn their place for things that need no external knowledg
 
 **Authorization is structural, not procedural.** The JWT's user claim is what builds the DynamoDB partition key. A request for another user's file does not fail an ownership check — it queries a partition the requester does not own and comes back empty. There is no `if file.OwnerID != claims.UserID` to forget, because there is no code path where the wrong user's data is in hand to be checked.
 
-**Server-generated S3 keys.** Keys are `users/<user_id>/<ulid>.pdf`, built server-side from the token claim and a fresh ULID. The ID is a ULID rather than a UUID because the listing pages straight off the sort key: a random UUID would page in arbitrary order, while a ULID's leading timestamp makes a descending key scan mean "newest first". The client-supplied filename is display metadata that never touches the key. Using it directly would let a client submit `../../users/other/file.pdf` and write outside its own prefix. The prefix then does triple duty: it scopes IAM policies per user, it distributes load across S3 partitions, and it carries the user ID inside the S3 event so the worker can find the record without a lookup table.
+**Server-generated S3 keys.** Keys are `users/<user_id>/<ulid>.pdf`, built server-side from the token claim and a fresh ULID. The ID is a ULID rather than a UUID because the listing pages straight off the sort key: a random UUID would page in arbitrary order, while a ULID's leading timestamp makes a descending key scan mean "newest first". The client-supplied filename is display metadata that never touches the key. Using it directly would let a client submit `../../users/other/file.pdf` and write outside its own prefix. The prefix then does triple duty: it would let IAM policies be scoped per user, it distributes load across S3 partitions, and it carries the user ID inside the S3 event so the worker can find the record without a lookup table.
 
 The layout is defined once, in `domain.S3KeyFor`, with `domain.ParseS3Key` as its inverse right next to it. Two independent definitions of the same path is how the key and the record drift apart.
 
@@ -184,7 +184,7 @@ The layout is defined once, in `domain.S3KeyFor`, with `domain.ParseS3Key` as it
 
 ## Running it
 
-`make build` compiles both Lambdas for `provided.al2023` on arm64 (the runtime expects the executable to be called `bootstrap`) and zips them into `build/`. The zips are byte-for-byte reproducible, so rebuilding unchanged code never shows up as a change in `terraform plan`.
+`make build` compiles the three Lambdas (API, worker and sweeper) for `provided.al2023` on arm64 (the runtime expects the executable to be called `bootstrap`) and zips them into `build/`. The zips are byte-for-byte reproducible, so rebuilding unchanged code never shows up as a change in `terraform plan`.
 
 ### Locally, against the AWS Emulator
 
@@ -264,11 +264,11 @@ cmd/
   sweeper/        entrypoint for the sweeper Lambda, run daily by EventBridge Scheduler
 internal/
   domain/         entities, statuses, errors, S3 key format — no AWS imports
-  handler/        use cases, HTTP router, SQS worker, transport DTOs
+  handler/        use cases, HTTP router, SQS worker, sweeper, transport DTOs
   adapter/
     auth/         JWT signing and validation
-    repository/   DynamoDB access, item mapping, cursor encoding
-    storage/      S3 presigning and deletion
+    repository/   DynamoDB access, item mapping, sweep index query, cursor encoding
+    storage/      S3 presigning, deletion and existence checks
 infra/            Terraform: root module and one module per AWS service
 local/            AWS Emulator image, env.sh, the local backend config, the SAM template and scripts
 docs/             architecture diagram (SVG source + PNG)
