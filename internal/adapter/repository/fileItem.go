@@ -40,6 +40,7 @@ func (f *fileItem) ToDomainFile() *domain.File {
 		TrashedAt:      timeFromEpoch(f.TrashedAt),
 		TrashExpiresAt: timeFromEpoch(f.TrashExpiresAt),
 		S3Deleted:      f.S3Deleted,
+		ExpiresAt:      timeFromEpoch(f.ExpiresAt),
 	}
 }
 
@@ -58,6 +59,7 @@ func FromDomainFile(f *domain.File) *fileItem {
 		TrashedAt:      epochFromTime(f.TrashedAt),
 		TrashExpiresAt: epochFromTime(f.TrashExpiresAt),
 		S3Deleted:      f.S3Deleted,
+		ExpiresAt:      epochFromTime(f.ExpiresAt),
 		SweepPK:        sweepPartitionKey,
 		SweepSK:        sweepDueAt,
 	}

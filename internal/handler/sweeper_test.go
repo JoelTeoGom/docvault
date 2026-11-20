@@ -88,6 +88,9 @@ func TestSweeperRemovesObjects(t *testing.T) {
 		if !stored.S3Deleted {
 			t.Errorf("%s: S3Deleted not set", tc.id)
 		}
+		if tc.id == "trashed" && stored.ExpiresAt.IsZero() {
+			t.Errorf("%s: no expiry set for the closed record", tc.id)
+		}
 		if storage.objects["users/u/"+tc.id+".pdf"] {
 			t.Errorf("%s: object still in the bucket", tc.id)
 		}

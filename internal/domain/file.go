@@ -31,6 +31,10 @@ const (
 	// PendingUploadGrace covers the presigned URL lifetime, the transfer and the
 	// event delivery: a younger pending file may still be uploading.
 	PendingUploadGrace = time.Hour
+
+	// ClosedRecordRetention is how long a deleted or rejected record stays as
+	// history before the DynamoDB TTL removes it.
+	ClosedRecordRetention = 30 * 24 * time.Hour
 )
 
 type File struct {
@@ -47,6 +51,7 @@ type File struct {
 	TrashExpiresAt time.Time
 
 	S3Deleted bool
+	ExpiresAt time.Time
 }
 
 // NewFileID returns an identifier that sorts chronologically as a string. The
@@ -69,6 +74,13 @@ func (f *File) CanBeRestored() bool {
 
 func (f *File) IsTrashed() bool {
 	return f.Status == StatusTrashed
+}
+
+// Close moves the file to a final status and lets the DynamoDB TTL remove its
+// record once the history has served its purpose.
+func (f *File) Close(status Status, now time.Time) {
+	f.Status = status
+	f.ExpiresAt = now.Add(ClosedRecordRetention)
 }
 
 // S3KeyFor builds the object key under which a user's file is stored. This is

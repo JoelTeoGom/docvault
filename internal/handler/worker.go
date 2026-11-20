@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/JoelTeoGom/docvault/internal/domain"
 
@@ -82,7 +83,7 @@ func (w *Worker) processMessage(ctx context.Context, msg events.SQSMessage) erro
 		}
 
 		if r.S3.Object.Size > domain.MaxFileSize || file.Mime != domain.MimeTypePDF || file.Size != r.S3.Object.Size {
-			file.Status = domain.StatusRejected
+			file.Close(domain.StatusRejected, time.Now())
 			err = w.repo.Transition(ctx, file, domain.StatusPending)
 			if errors.Is(err, domain.ErrInvalidStatus) {
 				return nil // a duplicate delivery already handled it

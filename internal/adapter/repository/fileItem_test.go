@@ -173,3 +173,16 @@ func TestTrashedWithoutRetentionStillReachesTheIndex(t *testing.T) {
 		t.Fatal("gsiSK missing, the item would be invisible to the sweeper")
 	}
 }
+
+func TestRoundTripKeepsExpiresAt(t *testing.T) {
+	original := newFile(domain.StatusDeleted)
+	original.ExpiresAt = createdAt.Add(domain.ClosedRecordRetention)
+
+	item := FromDomainFile(original)
+	if item.ExpiresAt != original.ExpiresAt.Unix() {
+		t.Errorf("expiresAt attribute: got %d, want %d", item.ExpiresAt, original.ExpiresAt.Unix())
+	}
+	if restored := item.ToDomainFile(); !restored.ExpiresAt.Equal(original.ExpiresAt) {
+		t.Errorf("expiresAt: got %s, want %s", restored.ExpiresAt, original.ExpiresAt)
+	}
+}

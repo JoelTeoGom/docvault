@@ -90,7 +90,7 @@ func (s *Sweeper) settlePending(ctx context.Context, file *domain.File) error {
 // serving it before its bytes disappear.
 func (s *Sweeper) removeObject(ctx context.Context, file *domain.File) error {
 	if file.IsTrashed() {
-		file.Status = domain.StatusDeleted
+		file.Close(domain.StatusDeleted, s.now())
 		if err := s.repo.Transition(ctx, file, domain.StatusTrashed); err != nil {
 			return err
 		}

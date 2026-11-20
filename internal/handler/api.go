@@ -169,7 +169,7 @@ func (api *API) MarkDeleted(ctx context.Context, userID, fileID string) error {
 		return api.repo.Transition(ctx, file, domain.StatusUploaded)
 
 	case file.IsTrashed():
-		file.Status = domain.StatusDeleted
+		file.Close(domain.StatusDeleted, time.Now())
 		if err := api.repo.Transition(ctx, file, domain.StatusTrashed); err != nil {
 			return err
 		}
