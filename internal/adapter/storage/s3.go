@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // presignTTL is how long a generated URL stays usable.
@@ -46,6 +47,22 @@ func (s *S3Service) DeleteFile(ctx context.Context, s3Key string) error {
 		Key:    aws.String(s3Key),
 	})
 	return err
+}
+
+func (s *S3Service) ObjectExists(ctx context.Context, s3Key string) (bool, error) {
+	_, err := s.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(s3Key),
+	})
+	if err == nil {
+		return true, nil
+	}
+
+	var notFound *types.NotFound
+	if errors.As(err, &notFound) {
+		return false, nil
+	}
+	return false, fmt.Errorf("head object: %w", err)
 }
 
 // PresignDownload returns a short lived URL that fetches an object.
