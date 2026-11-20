@@ -43,3 +43,9 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ../build/worker
+
+  SweeperFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../build/sweeper
+      Timeout: 300

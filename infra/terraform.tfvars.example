@@ -34,7 +34,7 @@ allowed_origins = ["http://localhost:5173"]
 # set explicitly on purpose.
 log_retention_days = 14
 
-# How often the reconciliation Lambda runs, as an EventBridge Scheduler
-# expression. Reconciliation is a safety net, not a hot path: daily is plenty,
-# and every run costs a scan of the pending-cleanup index.
-reconciliation_schedule = "rate(1 day)"
+# How often the sweeper Lambda runs, as an EventBridge Scheduler expression.
+# The sweeper is a safety net, not a hot path: daily is plenty, and each run
+# only reads the records that are due from the sweep index.
+sweeper_schedule = "rate(1 day)"

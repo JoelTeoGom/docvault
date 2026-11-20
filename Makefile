@@ -1,5 +1,5 @@
 EMULATOR_HOME := $(HOME)/.aws/emulator
-FUNCTIONS := api worker
+FUNCTIONS := api worker sweeper
 LOCAL_ENV := . ./local/env.sh &&
 STATE_BUCKET := docvault-tfstate
 DOCKER_NETWORK := docvault-net
@@ -10,7 +10,7 @@ SAM_NETWORK = --docker-network $(DOCKER_NETWORK) \
 
 export SAM_CLI_TELEMETRY := 0
 
-.PHONY: build emulator emulator-stop infra-local api worker token
+.PHONY: build emulator emulator-stop infra-local api worker sweeper token
 
 build:
 	for function in $(FUNCTIONS); do \
@@ -48,6 +48,11 @@ api: build
 worker: build
 	$(LOCAL_ENV) ./local/sam-env.sh
 	$(LOCAL_ENV) ./local/worker.sh $(SAM_NETWORK)
+
+sweeper: build
+	$(LOCAL_ENV) ./local/sam-env.sh
+	$(LOCAL_ENV) echo '{}' | sam local invoke SweeperFunction --template local/template.yaml --env-vars build/sam-env.json \
+		--event - --region $$AWS_REGION $(SAM_NETWORK)
 
 token:
 	@$(LOCAL_ENV) ./local/token.sh $(USER_ID)

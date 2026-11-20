@@ -75,3 +75,45 @@ resource "aws_iam_role_policy" "worker" {
     ]
   })
 }
+
+resource "aws_iam_role" "sweeper" {
+  name               = "${var.project_name}-sweeper"
+  assume_role_policy = local.lambda_assume_role_policy
+}
+
+resource "aws_iam_role_policy_attachment" "sweeper_logs" {
+  role       = aws_iam_role.sweeper.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "sweeper" {
+  name = "sweep"
+  role = aws_iam_role.sweeper.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "dynamodb:Query"
+        Resource = "${var.table_arn}/index/sweep-index"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:DeleteItem"]
+        Resource = var.table_arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:DeleteObject"]
+        Resource = "${var.bucket_arn}/*"
+      },
+      {
+        # Without ListBucket, HeadObject answers 403 instead of 404 for a missing object.
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = var.bucket_arn
+      },
+    ]
+  })
+}

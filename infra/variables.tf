@@ -43,3 +43,9 @@ variable "queue_trigger_enabled" {
   type        = bool
   default     = true
 }
+
+variable "sweeper_schedule" {
+  description = "When the sweeper runs, as an EventBridge Scheduler expression."
+  type        = string
+  default     = "rate(1 day)"
+}

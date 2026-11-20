@@ -72,3 +72,24 @@ module "apigateway" {
   lambda_invoke_arn    = module.api_lambda.invoke_arn
   lambda_function_name = module.api_lambda.function_name
 }
+
+module "sweeper_lambda" {
+  source             = "./modules/lambda"
+  function_name      = "${var.project_name}-sweeper"
+  role_arn           = module.iam.sweeper_role_arn
+  package_path       = "${path.root}/../build/sweeper.zip"
+  log_retention_days = var.log_retention_days
+  timeout            = 300
+
+  environment = {
+    TABLE     = module.dynamodb.table_name
+    S3_BUCKET = module.s3.bucket_name
+  }
+}
+
+module "eventbridge" {
+  source              = "./modules/eventbridge"
+  project_name        = var.project_name
+  schedule_expression = var.sweeper_schedule
+  lambda_arn          = module.sweeper_lambda.function_arn
+}
