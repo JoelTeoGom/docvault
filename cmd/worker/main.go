@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"os"
-	"pdf-box-aws/internal/adapter/repository"
-	"pdf-box-aws/internal/adapter/storage"
-	"pdf-box-aws/internal/handler"
+
+	"github.com/JoelTeoGom/docvault/internal/adapter/repository"
+	"github.com/JoelTeoGom/docvault/internal/adapter/storage"
+	"github.com/JoelTeoGom/docvault/internal/handler"
 
 	"github.com/aws/aws-lambda-go/lambda"
 )

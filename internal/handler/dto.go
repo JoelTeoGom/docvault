@@ -3,7 +3,7 @@ package handler
 import (
 	"time"
 
-	"pdf-box-aws/internal/domain"
+	"github.com/JoelTeoGom/docvault/internal/domain"
 )
 
 // FileDTO is the file shape exposed to API clients. It deliberately omits

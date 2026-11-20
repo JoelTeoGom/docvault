@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"pdf-box-aws/internal/domain"
+	"github.com/JoelTeoGom/docvault/internal/domain"
 
 	"github.com/aws/aws-lambda-go/events"
 )

@@ -2,11 +2,11 @@ package auth
 
 import (
 	"context"
-	"pdf-box-aws/internal/domain"
-
 	"fmt"
 	"math/rand"
 	"time"
+
+	"github.com/JoelTeoGom/docvault/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
 )

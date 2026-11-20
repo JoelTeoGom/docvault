@@ -1,4 +1,4 @@
-module pdf-box-aws
+module github.com/JoelTeoGom/docvault
 
 go 1.25.3
 

@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"pdf-box-aws/internal/domain"
+
+	"github.com/JoelTeoGom/docvault/internal/domain"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"

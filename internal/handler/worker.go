@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"pdf-box-aws/internal/domain"
 	"strconv"
 	"strings"
+
+	"github.com/JoelTeoGom/docvault/internal/domain"
 
 	"github.com/aws/aws-lambda-go/events"
 )

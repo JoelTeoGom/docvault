@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"pdf-box-aws/internal/domain"
+	"github.com/JoelTeoGom/docvault/internal/domain"
 
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 )

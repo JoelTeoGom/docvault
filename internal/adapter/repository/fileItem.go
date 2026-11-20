@@ -1,8 +1,9 @@
 package repository
 
 import (
-	"pdf-box-aws/internal/domain"
 	"time"
+
+	"github.com/JoelTeoGom/docvault/internal/domain"
 )
 
 const sweepPrefix = "SWEEP#"

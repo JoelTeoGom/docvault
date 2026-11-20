@@ -1,7 +1,7 @@
 variable "project_name" {
   description = "Prefix for every resource name."
   type        = string
-  default     = "pdfbox"
+  default     = "docvault"
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]*$", var.project_name))

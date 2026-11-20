@@ -3,8 +3,9 @@ package handler
 import (
 	"context"
 	"log"
-	"pdf-box-aws/internal/adapter/repository"
-	"pdf-box-aws/internal/adapter/storage"
+
+	"github.com/JoelTeoGom/docvault/internal/adapter/repository"
+	"github.com/JoelTeoGom/docvault/internal/adapter/storage"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"

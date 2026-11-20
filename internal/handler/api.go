@@ -2,8 +2,9 @@ package handler
 
 import (
 	"context"
-	"pdf-box-aws/internal/domain"
 	"time"
+
+	"github.com/JoelTeoGom/docvault/internal/domain"
 )
 
 type API struct {

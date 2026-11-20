@@ -1,4 +1,4 @@
-# pdfbox-aws
+# docvault
 
 Serverless multi-tenant PDF storage on AWS, written in Go and provisioned with Terraform, where file bytes never pass through the backend.
 
