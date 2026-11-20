@@ -50,6 +50,9 @@ func (api *API) Get(ctx context.Context, userID, fileID string) (*domain.File, s
 	if file == nil {
 		return nil, "", domain.ErrFileNotFound
 	}
+	if file.IsTrashed() {
+		return nil, "", domain.ErrFileTrashed
+	}
 	if !file.CanBeDownloaded() {
 		return nil, "", domain.ErrNotReady
 	}
