@@ -24,18 +24,19 @@ The consequence is that Lambda handles kilobytes of JSON regardless of whether t
 | Scheduling | EventBridge Scheduler |
 | Observability | CloudWatch Logs |
 | Identity | IAM roles, JWT (HS256) |
-| Provisioning | Terraform |
+| Provisioning | Terraform, state in S3 with locking |
+| Local testing | AWS Emulator in Docker |
 
 ## API
 
-All routes require an `Authorization: Bearer <jwt>` header. The token's `user_id` claim becomes the DynamoDB partition key.
+All routes require an `Authorization: Bearer <jwt>` header. The token must be signed with HS256 and carry an `exp` claim; anything else is a `401`. Its `user_id` claim becomes the DynamoDB partition key.
 
 | Route | Behaviour |
 |---|---|
 | `POST /files` | Validates the declared filename, size and MIME type, writes the record as `pending`, returns a presigned `PUT` URL valid for 15 minutes |
-| `GET /files` | Cursor-paginated metadata list. Signs no URLs |
-| `GET /files/{fileID}` | Returns metadata plus a presigned `GET` URL |
-| `DELETE /files/{fileID}` | Moves the record to `deleted` and removes the object from S3 |
+| `GET /files` | Cursor-paginated metadata list, newest first. Deleted and rejected files are left out. Signs no URLs |
+| `GET /files/{fileID}` | Returns metadata plus a presigned `GET` URL. `409` while the upload is still `pending`, `410` if the file is in the trash |
+| `DELETE /files/{fileID}` | First call moves an `uploaded` file to the trash for 24 hours. A second call on a trashed file deletes it for good: the record moves to `deleted` and the object is removed from S3 |
 
 `POST /files` accepts `{"filename": "...", "size": 1234, "mime": "application/pdf"}` and returns:
 
@@ -85,7 +86,7 @@ Every step between the client's request and the record reaching `uploaded` can f
 | 10 | Event body or object key is unparseable | Object present, no usable record | Permanent failure: the object is deleted and the message dropped |
 | 11 | The same event is delivered twice | Record already `uploaded` | Worker is idempotent; a non-`pending` record is left alone |
 | 12 | Worker keeps failing past `maxReceiveCount` | `pending` record, object present | Message to the DLQ; the sweep still reconciles the pair |
-| 13 | File is deleted while its upload is in flight | `deleted` record, **object present** | Sweep collects the orphan; the worker could delete it on the spot instead |
+| 13 | `DELETE` arrives while the upload is in flight | `pending` record, unchanged | `409`: only an `uploaded` file can go to the trash, so an upload is never orphaned by a delete |
 
 **Row 3 is the one worth spelling out, because a closed tab cancels nothing.** The `context.Context` a Lambda handler receives is built by the runtime from the `Lambda-Runtime-Deadline-Ms` header, so it carries the invocation deadline and nothing else. API Gateway does not propagate client disconnects to its integration. The invocation therefore runs to completion — it writes the `pending` record, signs the URL, and returns a response that API Gateway drops on the floor, because the socket it would write to no longer exists. From the backend's point of view the request succeeded and the URL was delivered. Nothing in the request path ever learns otherwise.
 
@@ -103,6 +104,8 @@ Rows 8, 9 and 12 are handled in code, but the code only works if the queue is se
 - The event source mapping must declare `FunctionResponseTypes: ["ReportBatchItemFailures"]`. Without it the `BatchItemFailures` the worker returns are ignored outright, and an invocation that returns no error deletes the entire batch — including the messages the worker explicitly asked to have redelivered.
 - `maxReceiveCount` on the redrive policy must be greater than 3. The worker spends the first three receives waiting out DynamoDB's eventual consistency (row 9); a lower count sends the message to the dead-letter queue before that logic has a chance to finish.
 - The visibility timeout must be at least the worker's timeout, or a slow invocation gets its own message redelivered while it is still processing it.
+
+The Terraform sets all three: `ReportBatchItemFailures` on the event source mapping, `maxReceiveCount = 5`, and a 60 second visibility timeout for a worker that times out at 10, the six-to-one ratio AWS recommends.
 
 ### Why the confirmation event comes from S3, not the client
 
@@ -124,11 +127,13 @@ That problem does not arise here. The backend writes only to DynamoDB. The event
 
 ## Trash and reconciliation
 
-`DELETE` is a soft delete on the metadata: the record moves to `deleted` rather than disappearing, which keeps the door open for a restore flow and for a retention window enforced by a DynamoDB TTL.
+`DELETE` works in two steps, like a desktop trash. The first call moves an `uploaded` file to `trashed` and sets `trashExpiresAt` 24 hours ahead: downloads stop (`GET` answers `410`) but the bytes stay, which keeps the door open for a restore flow. A second `DELETE` on a trashed file is the permanent one: the record moves to `deleted`, the object is removed from S3, and the record is flagged `s3Deleted`. `deleted` and `rejected` records are kept as history, and the listing hides them.
 
-Deletion is ordered deliberately: mark the record first, delete the object second. The two possible intermediate states are not equally bad. A live object whose record says `deleted` is an invisible orphan costing fractions of a cent. A deleted object whose record says `uploaded` is a broken link the user clicks and a support ticket. Only one of those is acceptable, so the write that closes the user-visible door happens first.
+The permanent delete is ordered deliberately: mark the record first, delete the object second. The two possible intermediate states are not equally bad. A live object whose record says `deleted` is an invisible orphan costing fractions of a cent. A deleted object whose record says `uploaded` is a broken link the user clicks and a support ticket. Only one of those is acceptable, so the write that closes the user-visible door happens first.
 
-That ordering leaves orphaned bytes behind whenever the second step fails, which is what the reconciliation job exists to clean up. It reads DynamoDB as the source of truth and reconciles S3 against it: deleting objects whose record is gone or trashed, and clearing `pending` records whose upload never arrived.
+That ordering leaves orphaned bytes behind whenever the second step fails, which is what the reconciliation job exists to clean up. It reads DynamoDB as the source of truth and reconciles S3 against it: deleting objects whose record is `deleted`, `rejected` or trashed past its retention, and clearing `pending` records whose upload never arrived.
+
+The job finds that work without scanning the table. Every record that may need cleaning carries `gsiPK = SWEEP#<status>` and `gsiSK = <due time>`, the keys of a sparse index: `uploaded` files and records whose object is already gone (`s3Deleted`) leave those attributes out, so they never appear in it. One query per status returns exactly the records that are due.
 
 ### Why reconciliation instead of tag-based lifecycle rules
 
@@ -150,7 +155,7 @@ The layout is defined once, in `domain.S3KeyFor`, with `domain.ParseS3Key` as it
 
 **Idempotency, because SQS is at-least-once.** The same upload event can be delivered more than once, so the worker must treat a duplicate as success rather than as an error. Returning an error on a duplicate would send a perfectly healthy message around the retry loop and into the dead-letter queue with nothing actually broken.
 
-**Conditional writes instead of read-then-write.** DynamoDB's `UpdateItem` is an upsert: without a guard, a status update for an unknown ID silently creates a record rather than failing. Every write carries a `ConditionExpression` — `attribute_exists(PK)` on updates, `attribute_not_exists(PK)` on inserts — which also makes the check atomic with the write, leaving no window for a concurrent writer.
+**Conditional writes instead of read-then-write.** Every status change goes through `Transition`: a `PutItem` with `ConditionExpression: #status = :from`, so it only succeeds if the stored status is still the one the code read. The check is atomic with the write, which leaves no window for a concurrent worker or request to slip in between; the loser gets a `409`. When the condition fails, `ReturnValuesOnConditionCheckFailure: ALL_OLD` returns the stored item, which tells a missing file (`404`) apart from one whose status moved on (`409`). The whole item is rewritten rather than patched, so the sweep index keys are always recomputed from the new status. Inserts use `attribute_not_exists(PK)`, so an ID collision fails instead of overwriting.
 
 **No credentials anywhere.** Nothing in this repository holds an AWS access key. Each Lambda assumes an IAM role and the runtime receives rotating temporary credentials from the environment. The only secret in the system is the JWT signing key.
 
@@ -168,35 +173,58 @@ The layout is defined once, in `domain.S3KeyFor`, with `domain.ParseS3Key` as it
 The diagram marks these with dashed borders:
 
 - The reconciliation Lambda and its EventBridge Scheduler rule. The design above describes the intended behaviour; `cmd/event-bridge` exists but is empty.
-- The DynamoDB TTL that purges trashed records after a retention window. The `expiresAt` attribute exists on the item but is never written.
+- Records expiring through the DynamoDB TTL. The table has TTL enabled on `expiresAt`, but nothing writes that attribute yet.
 - A restore-from-trash route.
 
 ## Running it
 
-Build both Lambda binaries. The `provided.al2023` runtime expects the executable to be called `bootstrap`:
+`make build` compiles both Lambdas for `provided.al2023` on arm64 (the runtime expects the executable to be called `bootstrap`) and zips them into `build/`. The zips are byte-for-byte reproducible, so rebuilding unchanged code never shows up as a change in `terraform plan`.
+
+### Locally, against the AWS Emulator
+
+Everything except running the Lambda code can be tested without an AWS account, with [AWS Emulator](https://github.com/aws/aws-emulator) in Docker. You need Docker, Go, Terraform and the AWS CLI.
 
 ```bash
-GOOS=linux GOARCH=arm64 go build -tags lambda.norpc -o build/api/bootstrap ./cmd/api
-GOOS=linux GOARCH=arm64 go build -tags lambda.norpc -o build/worker/bootstrap ./cmd/worker
+make emulator      # starts the emulator on https://127.0.0.1:9297
+make infra-local   # builds the Lambdas, creates the state bucket and applies the Terraform
 ```
 
-Then provision:
+`local/env.sh` points the AWS CLI, the SDKs and Terraform at the emulator instead of AWS, and sets the local values of the Terraform variables. After `source local/env.sh`, every `aws` command in that shell goes to the emulator:
 
 ```bash
+aws dynamodb describe-table --table-name docvault-files
+aws s3 ls
+```
+
+The emulator keeps everything in memory, so `make emulator-stop` wipes it and the next `make infra-local` starts from scratch. It serves the AWS APIs but does not run Lambda code, and it does not evaluate IAM policies: permissions are only proven on AWS.
+
+### On AWS
+
+The state lives in an S3 bucket with versioning and locking. Create that bucket once, outside this Terraform, so a `destroy` can never delete its own state:
+
+```bash
+aws s3api create-bucket --bucket <state-bucket> --create-bucket-configuration LocationConstraint=eu-west-1
+aws s3api put-bucket-versioning --bucket <state-bucket> --versioning-configuration Status=Enabled
+```
+
+Then build and provision:
+
+```bash
+make build
 cd infra
 cp terraform.tfvars.example terraform.tfvars   # fill in your values
-terraform init
+terraform init \
+  -backend-config="bucket=<state-bucket>" \
+  -backend-config="key=docvault/terraform.tfstate" \
+  -backend-config="region=eu-west-1" \
+  -backend-config="use_lockfile=true"
 terraform plan
 terraform apply
 ```
 
-Tear everything down:
+Tear everything down with `terraform destroy`. The bucket must be empty first, because the S3 module does not set `force_destroy`.
 
-```bash
-terraform destroy
-```
-
-The bucket must be empty before `destroy` succeeds unless the S3 module sets `force_destroy`.
+The Terraform lives next to the code because it only describes this service: a new route or environment variable changes both in the same commit.
 
 ## Repository layout
 
@@ -204,6 +232,7 @@ The bucket must be empty before `destroy` succeeds unless the S3 module sets `fo
 cmd/
   api/            entrypoint for the HTTP Lambda
   worker/         entrypoint for the SQS consumer Lambda
+  event-bridge/   entrypoint for the reconciliation Lambda (not implemented)
 internal/
   domain/         entities, statuses, errors, S3 key format — no AWS imports
   handler/        use cases, HTTP router, SQS worker, transport DTOs
@@ -211,8 +240,10 @@ internal/
     auth/         JWT signing and validation
     repository/   DynamoDB access, item mapping, cursor encoding
     storage/      S3 presigning and deletion
+infra/            Terraform: root module and one module per AWS service
+local/            AWS Emulator image, env.sh and the local backend config
 docs/             architecture diagram (SVG source + PNG)
-infra/            Terraform, one module per AWS service
+Makefile          build, emulator, emulator-stop, infra-local
 ```
 
 `internal/domain` depends on nothing. The adapters depend on the ports declared alongside the use cases, so swapping DynamoDB or S3 means writing a new adapter rather than touching the business logic.
@@ -222,3 +253,7 @@ infra/            Terraform, one module per AWS service
 At this volume everything sits inside the AWS free tier, and more importantly nothing runs when idle. There is no NAT Gateway, no RDS instance, no load balancer, and no VPC-attached Lambda — the four line items that usually turn a hobby project into a monthly bill. Lambda, DynamoDB on-demand, SQS and API Gateway all bill per request; S3 bills for the bytes actually stored.
 
 Generating a presigned URL costs nothing at all: it is a local HMAC computation, not an AWS API call.
+
+## License
+
+[MIT](LICENSE)
